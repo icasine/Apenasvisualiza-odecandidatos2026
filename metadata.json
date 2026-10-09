@@ -1,0 +1,6 @@
+{
+  "name": "Apenas mapa com candidatos",
+  "description": "Visualização geográfica e análise de resultados eleitorais por seção e local de votação de Contagem/MG com suporte offline e PWA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

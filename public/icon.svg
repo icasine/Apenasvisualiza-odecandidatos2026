@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <!-- Map Pin / Ballot icon -->
+  <circle cx="256" cy="210" r="110" fill="url(#accent)" opacity="0.15"/>
+  <path d="M256 120 C190 120 136 174 136 240 C136 325 240 408 256 420 C272 408 376 325 376 240 C376 174 322 120 256 120 Z" fill="url(#accent)"/>
+  <!-- Ballot checkmark / Urna ballot slot -->
+  <circle cx="256" cy="230" r="54" fill="#0f172a"/>
+  <path d="M236 230 L250 244 L278 214" stroke="#38bdf8" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
