@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { hojeIso } from '../../utils/perfis';
 import {
   AlertTriangle,
   ChevronDown,
@@ -342,7 +343,7 @@ export const SectionsTable: React.FC<SectionsTableProps> = ({
     if (minimoVotos.trim()) partes.push(`a partir de ${minimoVotos} votos`);
     return partes.join(' · ');
   };
-  const dataDeHoje = () => new Date().toISOString().slice(0, 10);
+  const dataDeHoje = () => hojeIso();
 
   const baixarCSV = () => {
     const semMilhar = (t: string) => (/^[+-]?\d{1,3}(\.\d{3})+$/.test(t) ? t.replace(/\./g, '') : t);

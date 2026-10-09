@@ -1,8 +1,7 @@
 import React from 'react';
-import { Map, Table2, Database, Filter, Globe, LogOut, Users, MapPinned, Flag, Megaphone, ClipboardList } from 'lucide-react';
+import { Map, Table2, Filter, Globe, LogOut, RefreshCw } from 'lucide-react';
 import { FilterState } from '../../types/election';
 import { PWAInstallButton } from '../PWA/PWAInstallButton';
-import { podeVerArea } from '../../utils/acesso';
 
 interface NavbarProps {
   currentTab: FilterState['tab'];
@@ -15,6 +14,7 @@ interface NavbarProps {
   mostrarGestao?: boolean;
   usuarioNome?: string;
   onSair?: () => void;
+  onAtualizarDados?: () => void;
   compacto?: boolean;
 }
 
@@ -30,29 +30,31 @@ export const Navbar: React.FC<NavbarProps> = ({
   onTabChange,
   onToggleFiltersMobile,
   candidatosCount,
-  isAdminAuthenticated = false,
-  mostrarGestao = true,
   usuarioNome,
   onSair,
+  onAtualizarDados,
   compacto = false
 }) => {
   const mostraBotaoCandidatos = currentTab === 'mapa' || currentTab === 'tabela';
 
   if (compacto) {
     const icone = (ativa: boolean) =>
-      `w-9 h-9 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${ativa ? 'text-slate-900 bg-slate-100 border border-slate-300' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'}`;
+      `w-10 h-10 lg:w-9 lg:h-9 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${ativa ? 'text-slate-900 bg-slate-100 border border-slate-300' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'}`;
     return (
-      <nav className="flex items-center gap-0.5" aria-label="Navegação">
+      <nav className="w-full lg:w-auto flex flex-wrap items-center justify-end gap-1 lg:gap-0.5" aria-label="Navegação">
         {mostraBotaoCandidatos && (
-          <button onClick={onToggleFiltersMobile} className="lg:hidden h-9 px-2.5 mr-1 flex items-center gap-1.5 rounded-lg text-white bg-blue-600 hover:bg-blue-500 text-xs font-bold cursor-pointer" title="Escolher candidatos" aria-label="Escolher candidatos">
+          <button onClick={onToggleFiltersMobile} className={`lg:hidden mr-auto h-10 px-3 flex items-center gap-1.5 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 cursor-pointer ${candidatosCount === 0 ? 'ring-2 ring-blue-300 ring-offset-1' : ''}`} title="Escolher candidatos" aria-label="Escolher candidatos">
             <Filter className="w-4 h-4" />
             <span>Candidatos</span>
-            {candidatosCount > 0 && <span className="min-w-4 h-4 px-1 rounded-full bg-white text-blue-700 text-[10px] leading-4 text-center">{candidatosCount}</span>}
+            {candidatosCount > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-white text-blue-700 text-[11px] leading-5 text-center">{candidatosCount}</span>}
           </button>
         )}
         <button onClick={() => onTabChange('mapa')} className={icone(currentTab === 'mapa')} title="Mapa" aria-label="Mapa"><Map className="w-4 h-4" /></button>
         <button onClick={() => onTabChange('tabela')} className={icone(currentTab === 'tabela')} title="Tabela" aria-label="Tabela"><Table2 className="w-4 h-4" /></button>
         <button onClick={() => onTabChange('minas')} className={icone(currentTab === 'minas')} title="Minas" aria-label="Minas"><Globe className="w-4 h-4" /></button>
+        {onAtualizarDados && (
+          <button onClick={onAtualizarDados} className={icone(false)} title="Atualizar dados" aria-label="Atualizar dados"><RefreshCw className="w-4 h-4" /></button>
+        )}
         {onSair && (
           <button onClick={onSair} className={icone(false)} title={usuarioNome ? `Sair (${usuarioNome})` : 'Sair'} aria-label="Sair"><LogOut className="w-4 h-4" /></button>
         )}

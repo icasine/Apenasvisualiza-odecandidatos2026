@@ -9,10 +9,10 @@ import { SectionsTable } from './components/Table/SectionsTable';
 import { OfflineIndicator } from './components/PWA/OfflineIndicator';
 import { LoginScreen } from './components/Acesso/LoginScreen';
 import { MinasView } from './components/Minas/MinasView';
-import { chavePerfil, lerPerfis, lerTemas, PerfilCandidato, seguidoresDe } from './utils/perfis';
+import { chavePerfil, Federacao, fotoDosItens, lerFederacoes, lerFotos, lerFotosProprias, lerPerfis, lerTemas, nomeArquivoFoto, PerfilCandidato, seguidoresDe } from './utils/perfis';
+import { juntarItensDeFederacao, partidoComFederacao } from './utils/federacoes';
 import { chaveDaPessoa as chaveDaPessoaItem } from './utils/itens';
 import {
-  AlteracaoDeItem,
   CandidatoInfo,
   CorrespondenciaLocaisArquivo,
   FilterState,
@@ -24,7 +24,7 @@ import {
 } from './types/election';
 import { getAdminSession, getStoredGitHubToken } from './utils/adminAuth';
 import { fetchDataFileDirectFromAPI } from './utils/dataLoader';
-import { acessoAtivo, atualizarPermissoes, iniciarDadosDoAcesso, lerSessao, limparCopiasDoAcesso, podeEditarDados, podeInserirArea, sairDoAcesso } from './utils/acesso';
+import { acessoAtivo, atualizarDadosDoAcesso, atualizarPermissoes, iniciarDadosDoAcesso, lerSessao, limparCacheDoServico, limparCopiasDoAcesso, podeEditarDados, sairDoAcesso } from './utils/acesso';
 import { AvisoDeCarga, TelaDeCarga } from './components/Acesso/AvisoDeCarga';
 import { useDadosNovosNoAcesso } from './hooks/useProgressoDoAcesso';
 import { preCarregarMinas } from './utils/minas';
@@ -56,9 +56,6 @@ const DEFAULT_FILTERS: FilterState = {
   eleicoesDesligadas: ['majoritarias']
 };
 
-// Anos que já entram ligados ao abrir o app, além do mais recente.
-const ANOS_LIGADOS_AO_ENTRAR = ['2024'];
-
 const INDICE_VAZIO: IndiceData = {
   municipio: 'Contagem',
   uf: 'MG',
@@ -79,13 +76,6 @@ function lerCacheLocal<T>(chave: string): T | null {
   }
 }
 
-function guardarCacheLocal(chave: string, valor: unknown): void {
-  try {
-    localStorage.setItem(chave, JSON.stringify(valor));
-  } catch {
-    console.warn('Armazenamento do navegador cheio ou indisponível; seguindo sem cópia local:', chave);
-  }
-}
 
 interface DadosLidosDoAno {
   locais: LocalVotacao[];
@@ -99,8 +89,6 @@ function anoMaisNovo(anos: string[]): string | null {
   const validos = anos.filter((a) => /^\d{4}$/.test(a)).sort();
   return validos.length > 0 ? validos[validos.length - 1] : null;
 }
-
-const SEM_LOCAIS: any[] = [];
 
 export default function App() {
   const [indice, setIndice] = useState<IndiceData | null>(null);
@@ -142,7 +130,8 @@ export default function App() {
         zonas: zonasParam ? zonasParam.split(',').filter(Boolean) : [],
         tab: tabInicial,
         compararDe: compParam.length === 2 ? compParam[0] : '',
-        compararPara: compParam.length === 2 ? compParam[1] : ''
+        compararPara: compParam.length === 2 ? compParam[1] : '',
+        somarFederacoes: params.get('fed') === '1'
       };
     } catch {
       return DEFAULT_FILTERS;
@@ -163,6 +152,9 @@ export default function App() {
       }
       if (filters.compararDe && filters.compararPara && filters.compararDe !== 'nenhum') {
         params.set('comp', `${filters.compararDe},${filters.compararPara}`);
+      }
+    if (filters.somarFederacoes) {
+        params.set('fed', '1');
       }
       const newUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
       window.history.replaceState(null, '', newUrl);
@@ -213,12 +205,10 @@ export default function App() {
         setIndice(loadedIndice);
         const anosDoIndice = Array.from(new Set(loadedIndice.candidatos.map((c) => String(c.ano)))).sort();
         const anoMaisRecente = anosDoIndice[anosDoIndice.length - 1];
-        const anosLigados = new Set([anoMaisRecente, ...ANOS_LIGADOS_AO_ENTRAR]);
-        setFilters((prev) => ({
+          setFilters((prev) => ({
           ...prev,
-          eleicoesDesligadas: Array.from(new Set([...(prev.eleicoesDesligadas || []), ...anosDoIndice.filter((a) => !anosLigados.has(a)).map((a) => `ano:${a}`)]))
+          eleicoesDesligadas: Array.from(new Set([...(prev.eleicoesDesligadas || []), ...anosDoIndice.filter((a) => a !== anoMaisRecente && a !== '2024').map((a) => `ano:${a}`)]))
         }));
-        if (window.innerWidth < 1024 && loadedIndice.candidatos.length > 0) setIsFilterDrawerOpenMobile(true);
         setCorrespondencia(validarCorrespondencia(correspondenciaBruta));
 
         setLoading(false);
@@ -252,6 +242,24 @@ export default function App() {
     if (!indice || perfisCarregados) return;
     lerPerfis().then((a) => setPerfisCarregados(a.perfis)).catch(() => setPerfisCarregados([]));
   }, [indice, perfisCarregados]);
+  const [fotosTse, setFotosTse] = useState<Record<string, string>>({});
+  const [fotosProprias, setFotosProprias] = useState<Set<string>>(new Set());
+  const fotosPedidas = useRef(false);
+  useEffect(() => {
+    if (candidatosMarcados.length === 0 || fotosPedidas.current) return;
+    fotosPedidas.current = true;
+    lerFotos().then(setFotosTse).catch(() => setFotosTse({}));
+    lerFotosProprias().then(setFotosProprias).catch(() => setFotosProprias(new Set()));
+  }, [candidatosMarcados.length]);
+  const fotoDaPessoa = useCallback(
+    (nome: string, itens: CandidatoInfo[]) => {
+      const chave = chavePerfil(nome);
+      const perfil = (perfisCarregados || []).find((p) => !p.teste && chavePerfil(p.pessoa) === chave);
+      const arquivo = nomeArquivoFoto(nome);
+      return perfil?.foto || (fotosProprias.has(arquivo) ? '/fotos/' + arquivo : fotoDosItens(fotosTse, itens));
+    },
+    [perfisCarregados, fotosProprias, fotosTse]
+  );
   const seguidoresMarcados = useMemo(() => {
     const redes = filters.redesLigadas || [];
     if (redes.length === 0 || !perfisCarregados || candidatosMarcados.length === 0) return null;
@@ -296,8 +304,7 @@ export default function App() {
       .finally(() => buscasEmAndamento.current.delete(cand.id));
   }, []);
 
-  const [candidatosRelatorio, setCandidatosRelatorio] = useState<CandidatoInfo[]>([]);
-  const paraCarregar = useMemo(() => (filters.tab === 'relatorio' && candidatosRelatorio.length ? [...candidatosMarcados, ...candidatosRelatorio] : candidatosMarcados), [filters.tab, candidatosRelatorio, candidatosMarcados]);
+  const paraCarregar = candidatosMarcados;
   useEffect(() => {
     if (!indice) return;
     paraCarregar.forEach((cand) => {
@@ -383,14 +390,6 @@ export default function App() {
     return saida;
   }, [dadosLidos, anoReferencia]);
 
-  const locaisDeReferencia = dadosLidos[anoReferencia]?.locais || [];
-  const locaisDoAno = useCallback(
-    (ano: string): LocalVotacao[] => {
-      const doAno = dadosLidos[ano]?.locais;
-      return doAno && doAno.length > 0 ? doAno : dadosLidos[anoReferencia]?.locais || [];
-    },
-    [dadosLidos, anoReferencia]
-  );
 
   const votosMapDeduplicado = useMemo(() => {
     const deduplicado: Record<string, SecaoVotoCandidato[]> = {};
@@ -441,43 +440,43 @@ export default function App() {
     };
   }, [candidatosMarcados, filters.modoVisualizacao]);
 
+  const [federacoes, setFederacoes] = useState<Federacao[] | null>(null);
+  useEffect(() => {
+    if (!filters.somarFederacoes || federacoes) return;
+    lerFederacoes().then(setFederacoes).catch(() => setFederacoes([]));
+  }, [filters.somarFederacoes, federacoes]);
+  const visaoFederada = useMemo(
+    () => (filters.somarFederacoes && federacoes ? juntarItensDeFederacao(candidatosMarcados, votosMapDeduplicado, federacoes, itensExcluidosDaSoma) : null),
+    [filters.somarFederacoes, federacoes, candidatosMarcados, votosMapDeduplicado, itensExcluidosDaSoma]
+  );
+  const itensDaTela = visaoFederada ? visaoFederada.itens : candidatosMarcados;
+  const votosDaTela = visaoFederada ? visaoFederada.votos : votosMapDeduplicado;
+  const foraDaSoma = visaoFederada ? visaoFederada.excluidos : itensExcluidosDaSoma;
+  const rotuloPartido = useCallback((c: CandidatoInfo) => partidoComFederacao(c, federacoes || []), [federacoes]);
+
   const parComparacao = useMemo(() => {
-    if (filters.compararDe === 'nenhum' || candidatosMarcados.length < 2) return null;
-    const ids = new Set(candidatosMarcados.map((c) => c.id));
+    if (filters.compararDe === 'nenhum' || itensDaTela.length < 2) return null;
+    const ids = new Set(itensDaTela.map((c) => c.id));
     const de = filters.compararDe || '';
     const para = filters.compararPara || '';
     if (de && para && de !== para && ids.has(de) && ids.has(para)) return { de, para };
-    return sugerirComparacao(candidatosMarcados);
-  }, [candidatosMarcados, filters.compararDe, filters.compararPara]);
+    return sugerirComparacao(itensDaTela);
+  }, [itensDaTela, filters.compararDe, filters.compararPara]);
 
   const modoEfetivo = filters.modoVisualizacao === 'diferenca' && !parComparacao ? 'somar' : filters.modoVisualizacao;
 
   const consolidado = useMemo(() => {
     return consolidar({
-      candidatos: candidatosMarcados,
-      votos: votosMapDeduplicado,
+      candidatos: itensDaTela,
+      votos: votosDaTela,
       dadosPorAno,
       referencia: anoReferencia,
       manual: correspondencia,
-      excluidosDaSoma: itensExcluidosDaSoma,
+      excluidosDaSoma: foraDaSoma,
       comparar: parComparacao
     });
-  }, [candidatosMarcados, votosMapDeduplicado, dadosPorAno, anoReferencia, correspondencia, itensExcluidosDaSoma, parComparacao]);
+  }, [itensDaTela, votosDaTela, dadosPorAno, anoReferencia, correspondencia, foraDaSoma, parComparacao]);
 
-  const consolidadoRelatorio = useMemo(() => {
-    if (filters.tab !== 'relatorio' || !candidatosRelatorio.length) return null;
-    return consolidar({
-      candidatos: candidatosRelatorio,
-      votos: votosMapDeduplicado,
-      dadosPorAno,
-      referencia: anoReferencia,
-      manual: correspondencia,
-      excluidosDaSoma: new Set<string>(),
-      comparar: null
-    });
-  }, [filters.tab, candidatosRelatorio, votosMapDeduplicado, dadosPorAno, anoReferencia, correspondencia]);
-  const pendentesRelatorio = candidatosRelatorio.filter((c) => !votosMap[c.id] && !errosDeCarga[c.id]).length + Array.from(new Set(candidatosRelatorio.map((c) => String(c.ano)))).filter((a) => !dadosLidos[a]).length;
-  const errosRelatorio = candidatosRelatorio.filter((c) => errosDeCarga[c.id]).map((c) => c.nome + ' (' + c.ano + ')');
 
   const locaisAgrupados: LocalAgrupado[] = consolidado.locais;
 
@@ -522,7 +521,7 @@ export default function App() {
 
   const resumoGeral = useMemo(() => {
     const votosSemLocal = semLocalizacaoVisivel
-      .filter((v) => !itensExcluidosDaSoma.has(v.candidatoId))
+      .filter((v) => !foraDaSoma.has(v.candidatoId))
       .reduce((acc, v) => acc + v.votos, 0);
     let votos = votosSemLocal;
     let eleitores = 0;
@@ -537,7 +536,7 @@ export default function App() {
     const eleitoresDoAno = (ano: string): number => locaisFiltrados.reduce((acc, l) => acc + (l.eleitoresPorAno?.[ano] || 0), 0);
 
     const porAno = consolidado.anos.map((ano) => {
-      const itens = candidatosMarcados.filter((c) => c.ano === ano && !itensExcluidosDaSoma.has(c.id));
+      const itens = itensDaTela.filter((c) => c.ano === ano && !foraDaSoma.has(c.id));
       const v = itens.reduce((acc, c) => acc + totalDoItem(c.id), 0);
       const e = eleitoresDoAno(ano);
       return { ano, votos: v, eleitores: e, pct: e > 0 ? (v / e) * 100 : 0 };
@@ -554,8 +553,8 @@ export default function App() {
       diferencaPct: number | null;
     } | null = null;
     if (parComparacao) {
-      const de = candidatosMarcados.find((c) => c.id === parComparacao.de);
-      const para = candidatosMarcados.find((c) => c.id === parComparacao.para);
+      const de = itensDaTela.find((c) => c.id === parComparacao.de);
+      const para = itensDaTela.find((c) => c.id === parComparacao.para);
       if (de && para) {
         const vDe = totalDoItem(de.id);
         const vPara = totalDoItem(para.id);
@@ -581,7 +580,7 @@ export default function App() {
       comparacao,
       votosSemLocal
     };
-  }, [locaisFiltrados, semLocalizacaoVisivel, consolidado.anos, candidatosMarcados, itensExcluidosDaSoma, parComparacao]);
+  }, [locaisFiltrados, semLocalizacaoVisivel, consolidado.anos, itensDaTela, foraDaSoma, parComparacao]);
 
   const availableZonas = useMemo(() => {
     const set = new Set<string>();
@@ -621,56 +620,8 @@ export default function App() {
     }));
   }, []);
 
-  const handleDadosAlterados = (novoIndice: IndiceData, alteracoes: AlteracaoDeItem[]) => {
-    limparCopiasDoAcesso();
-    setIndice(novoIndice);
-    guardarCacheLocal('contagem_indice_custom', novoIndice);
-    if (alteracoes.length === 0) return;
 
-    setVotosMap((prev) => {
-      const copia = { ...prev };
-      alteracoes.forEach((a) => {
-        if (a.removido || !a.secoes) delete copia[a.id];
-        else copia[a.id] = a.secoes;
-      });
-      return copia;
-    });
-    const removidos = alteracoes.filter((a) => a.removido).map((a) => a.id);
-    if (removidos.length > 0) {
-      setFilters((prev) => ({
-        ...prev,
-        candidatosSelecionados: prev.candidatosSelecionados.filter((id) => !removidos.includes(id))
-      }));
-    }
-  };
 
-  const handleVerNoMapa = (ids: string[]) => {
-    setFilters((prev) => ({
-      ...prev,
-      candidatosSelecionados: ids.length > 0 ? ids : prev.candidatosSelecionados,
-      tab: 'mapa'
-    }));
-  };
-
-  const handleApplyAuxiliarSalvo = (tipo: 'eleitorado' | 'agregadas' | 'locais', ano: string, dados: any[]) => {
-    setDadosLidos((prev) => {
-      const atual: DadosLidosDoAno = prev[ano] || { locais: [], eleitorado: {}, agregadas: {}, avisos: [] };
-      if (tipo === 'eleitorado') {
-        const mapa = validarEleitorado(dados) || {};
-        guardarCacheLocal(`contagem_eleitorado_${ano}`, mapa);
-        return { ...prev, [ano]: { ...atual, eleitorado: mapa } };
-      }
-      if (tipo === 'agregadas') {
-        const mapa = validarAgregadas(dados) || {};
-        const extintas = validarSecoesExtintas(dados) || {};
-        guardarCacheLocal(`contagem_agregadas_${ano}`, mapa);
-        return { ...prev, [ano]: { ...atual, agregadas: mapa, extintas } };
-      }
-      const locais = validarLocais(dados)?.dados || [];
-      if (ano === anoReferencia) guardarCacheLocal('contagem_locais_custom', locais);
-      return { ...prev, [ano]: { ...atual, locais } };
-    });
-  };
 
   if (exigeLogin) {
     return <LoginScreen />;
@@ -747,12 +698,15 @@ export default function App() {
           sairDoAcesso();
           window.location.reload();
           }}
+        onAtualizarDados={podeEditar ? () => {
+          limparCacheDoServico().then(() => atualizarDadosDoAcesso()).finally(() => window.location.reload());
+          } : undefined}
         />
   );
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden bg-white text-slate-900">
-      {(filters.tab === 'minas' || filters.tab === 'perfis' || filters.tab === 'territorios' || filters.tab === 'acoes' || filters.tab === 'campanha' || filters.tab === 'relatorio') && (
+      {(filters.tab === 'minas') && (
         <div className="shrink-0 flex justify-end px-3 py-1 border-b border-slate-200 bg-white">{navegacao}</div>
       )}
 
@@ -768,9 +722,10 @@ export default function App() {
         </div>
       )}
 
-      {filters.tab !== 'minas' && filters.tab !== 'perfis' && filters.tab !== 'territorios' && filters.tab !== 'acoes' && filters.tab !== 'campanha' && filters.tab !== 'relatorio' && (
+      {filters.tab !== 'minas' && (
         <TopSummaryBar
-          candidatosSelecionados={candidatosMarcados}
+          candidatosSelecionados={itensDaTela}
+          rotuloPartido={filters.somarFederacoes ? rotuloPartido : undefined}
           totalVotos={resumoGeral.votos}
           totalEleitores={resumoGeral.eleitores}
           pctSobreEleitores={resumoGeral.pct}
@@ -779,6 +734,8 @@ export default function App() {
           votosSemLocalizacao={resumoGeral.votosSemLocal}
           acoes={navegacao}
           seguidores={seguidoresMarcados}
+          onEscolher={() => setIsFilterDrawerOpenMobile(true)}
+          fotoDe={fotoDaPessoa}
         />
       )}
 
@@ -810,7 +767,7 @@ export default function App() {
       )}
 
       <div className="flex-1 flex overflow-hidden relative">
-        {indice && filters.tab !== 'gestao' && filters.tab !== 'minas' && filters.tab !== 'perfis' && filters.tab !== 'territorios' && filters.tab !== 'acoes' && filters.tab !== 'campanha' && filters.tab !== 'relatorio' && (
+        {indice && filters.tab !== 'minas' && (
           <FilterDrawer
             redesDisponiveis={Array.from(new Set((perfisCarregados || []).filter((p) => !p.teste).flatMap((p) => p.redes.map((x) => x.rede))))}
             candidatosDisponiveis={indice.candidatos}
@@ -823,6 +780,8 @@ export default function App() {
             onCloseMobile={() => setIsFilterDrawerOpenMobile(false)}
             parComparacao={parComparacao}
             itensForaDaSoma={Array.from(itensExcluidosDaSoma)}
+            federacoes={federacoes}
+            itensMarcados={visaoFederada ? itensDaTela : undefined}
           />
         )}
 
@@ -834,12 +793,10 @@ export default function App() {
               locais={locaisFiltrados}
               selectedLocalKey={selectedLocalKey}
               onSelectLocal={(key) => setSelectedLocalKey(key)}
-              candidatosSelecionados={candidatosMarcados}
+              candidatosSelecionados={itensDaTela}
               modoVisualizacao={modoEfetivo}
               destaqueSecao={filters.secaoFiltro}
-              onAbrirGestao={undefined}
               hasAnyPublishedData={Boolean(indice?.candidatos && indice.candidatos.length > 0)}
-              camadasExtras={[]}
             />
             </>
           )}
@@ -847,9 +804,9 @@ export default function App() {
           {filters.tab === 'tabela' && (
             <SectionsTable
               locais={locaisFiltrados}
-              candidatosSelecionados={candidatosMarcados}
+              candidatosSelecionados={itensDaTela}
               semLocalizacao={semLocalizacaoVisivel}
-              itensForaDaSoma={Array.from(itensExcluidosDaSoma)}
+              itensForaDaSoma={Array.from(foraDaSoma)}
               onSelectLocal={(key) => {
                 setSelectedLocalKey(key);
                 setFilters({ ...filters, tab: 'mapa' });
@@ -858,14 +815,14 @@ export default function App() {
             />
           )}
 
-          {filters.tab === 'minas' && <MinasView podeEditar={false} />}
+          {filters.tab === 'minas' && <MinasView />}
         </main>
 
         {selectedLocal && filters.tab === 'mapa' && (
           <LocalDetailPanel
             local={selectedLocal}
             onClose={() => setSelectedLocalKey(null)}
-            candidatosSelecionados={candidatosMarcados}
+            candidatosSelecionados={itensDaTela}
             podeBaixar={podeEditar}
           />
         )}

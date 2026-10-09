@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Download, Search, Upload, X, Users, Map as MapIcon, Table2, AlertTriangle } from 'lucide-react';
+import { Search, X, Users, Map as MapIcon, Table2, AlertTriangle } from 'lucide-react';
 import { CARGOS_DISPONIVEIS } from '../../types/election';
 import { fetchDataFile } from '../../utils/dataLoader';
-import { limparCopiasDoAcesso } from '../../utils/acesso';
 import {
   MunicipioMG,
   MinasIndice,
@@ -21,10 +20,6 @@ import {
   rampaDaCor,
   COR_SEM_VOTO
 } from '../../utils/minas';
-
-interface MinasViewProps {
-  podeEditar: boolean;
-}
 
 type ModoMinas = 'intensidade' | 'lider' | 'percentual' | 'comparar';
 type FormaMinas = 'areas' | 'circulos';
@@ -43,7 +38,7 @@ const fmt = (n: number) => n.toLocaleString('pt-BR');
 const fmtPct = (n: number) => `${n.toFixed(2).replace('.', ',')}%`;
 const fmtFaixa = (v: number) => (Number.isInteger(v) ? `${v}%` : fmtPct(v));
 
-export const MinasView: React.FC<MinasViewProps> = ({ podeEditar }) => {
+export const MinasView: React.FC = () => {
   const [malha, setMalha] = useState<MunicipioMG[] | null>(null);
   const [erroMalha, setErroMalha] = useState<string | null>(null);
   const [indice, setIndice] = useState<MinasIndice | null>(null);
@@ -62,8 +57,6 @@ export const MinasView: React.FC<MinasViewProps> = ({ podeEditar }) => {
   const tabelaAberta = verTodos || busca.trim() !== '';
   const [municipioSel, setMunicipioSel] = useState<string | null>(null);
   const [ordem, setOrdem] = useState<{ campo: string; crescente: boolean }>({ campo: 'total', crescente: false });
-  const [envioAberto, setEnvioAberto] = useState(false);
-  const [temporarios, setTemporarios] = useState<MinasItemInfo[]>([]);
   const [mostrarNumeros, setMostrarNumeros] = useState(true);
   const [visaoMapa, setVisaoMapa] = useState(0);
 
@@ -102,8 +95,8 @@ export const MinasView: React.FC<MinasViewProps> = ({ podeEditar }) => {
   }, []);
 
   const itensMarcados = useMemo<MinasItemInfo[]>(
-    () => [...temporarios, ...(indice ? indice.itens : [])].filter((i) => selecionados.includes(i.id)),
-    [indice, selecionados, temporarios]
+    () => (indice ? indice.itens : []).filter((i) => selecionados.includes(i.id)),
+    [indice, selecionados]
   );
 
   useEffect(() => {
@@ -417,22 +410,6 @@ export const MinasView: React.FC<MinasViewProps> = ({ podeEditar }) => {
     });
   }, [linhas, itensMarcados, malha, visaoMapa, mostrarNumeros, modoEfetivo, itemComPct]);
 
-  const descartarPrevia = () => {
-    const ids = temporarios.map((t) => t.id);
-    setTemporarios([]);
-    setSelecionados((prev) => prev.filter((id) => !ids.includes(id)));
-    setVotosPorItem((prev) => {
-      const copia = { ...prev };
-      ids.forEach((id) => delete copia[id]);
-      return copia;
-    });
-    setPctPorItem((prev) => {
-      const copia = { ...prev };
-      ids.forEach((id) => delete copia[id]);
-      return copia;
-    });
-  };
-
   const alternarItem = (id: string) => {
     setSelecionados((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
@@ -446,37 +423,6 @@ export const MinasView: React.FC<MinasViewProps> = ({ podeEditar }) => {
 
   const ordenarPor = (campo: string) => {
     setOrdem((prev) => (prev.campo === campo ? { campo, crescente: !prev.crescente } : { campo, crescente: campo === 'nome' }));
-  };
-
-  const baixarCsv = () => {
-    const comPct = itensMarcados.filter((i) => pctPorItem[i.id]);
-    const cabecalho = [
-      'Posição',
-      'Município',
-      'Código IBGE',
-      ...itensMarcados.map((i) => `${i.nome} (${i.numero}) ${i.ano}`),
-      ...comPct.map((i) => `% dos válidos: ${i.nome} (${i.numero})`),
-      'Total'
-    ];
-    const corpo = linhasTabela.map((l) => [
-      String(posicaoPorTotal.get(l.cod) || ''),
-      l.nome,
-      l.cod,
-      ...itensMarcados.map((i) => String(l.votosPorItem[i.id] || 0)),
-      ...comPct.map((i) => (l.pctPorItem[i.id] !== undefined ? String(l.pctPorItem[i.id]).replace('.', ',') : '')),
-      String(l.total)
-    ]);
-    const texto = [cabecalho, ...corpo]
-      .map((linha) => linha.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';'))
-      .join('\r\n');
-    const blob = new Blob(['﻿' + texto], { type: 'text/csv;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'minas-por-municipio.csv';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(link.href), 2000);
   };
 
   const linhaSelecionada = municipioSel ? linhas.find((l) => l.cod === municipioSel) || null : null;
@@ -509,16 +455,6 @@ export const MinasView: React.FC<MinasViewProps> = ({ podeEditar }) => {
             {fmt(totais.comVoto)} de {fmt(linhas.length)}
           </div>
         </div>
-        {podeEditar && (
-          <button
-            onClick={() => setEnvioAberto(true)}
-            disabled={!malha || !indice}
-            className="ml-auto flex items-center gap-1.5 h-10 px-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer"
-          >
-            <Upload className="w-4 h-4" />
-            <span>Enviar votos por município</span>
-          </button>
-        )}
       </div>
 
       <div className="lg:hidden shrink-0 flex items-center gap-1 px-3 py-1.5 border-b border-slate-200">
@@ -549,46 +485,9 @@ export const MinasView: React.FC<MinasViewProps> = ({ podeEditar }) => {
                 Carregando os itens publicados. Pode levar alguns segundos.
               </div>
             )}
-            {semItens && temporarios.length === 0 && (
+          {semItens && (
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-700">
                 Nenhum dado de Minas publicado ainda.
-                {podeEditar ? ' Use o botão "Enviar votos por município".' : ''}
-              </div>
-            )}
-            {temporarios.length > 0 && (
-              <div className="bg-amber-50 border border-amber-300 rounded-xl p-2 space-y-1.5">
-                <div className="font-bold text-amber-800">Prévia da planilha (ainda não salva)</div>
-                {temporarios.map((item) => (
-                  <label key={item.id} className="flex items-start gap-2 p-2 rounded-lg border border-amber-200 bg-white cursor-pointer">
-                    <input type="checkbox" checked={selecionados.includes(item.id)} onChange={() => alternarItem(item.id)} className="mt-0.5" />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: corValida(item.cor) }} />
-                        <span className="font-semibold text-slate-900 truncate">{item.nome}</span>
-                      </span>
-                      <span className="block text-[11px] text-slate-500">
-                        Nº {item.numero} · {CARGOS_DISPONIVEIS[item.cargo] || item.cargo} {item.ano}
-                      </span>
-                      <span className="block text-[11px] font-mono text-slate-700">{fmt(item.totalVotos)} votos</span>
-                    </span>
-                  </label>
-                ))}
-                <div className="flex gap-1">
-                  {podeEditar && (
-                    <button
-                      onClick={() => setEnvioAberto(true)}
-                      className="flex-1 h-10 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold cursor-pointer"
-                    >
-                      Voltar para salvar
-                    </button>
-                  )}
-                  <button
-                    onClick={descartarPrevia}
-                    className="flex-1 h-10 bg-white border border-slate-300 text-slate-700 rounded-lg font-semibold cursor-pointer"
-                  >
-                    Descartar prévia
-                  </button>
-                </div>
               </div>
             )}
             {anos.map((ano) => (
@@ -857,15 +756,6 @@ export const MinasView: React.FC<MinasViewProps> = ({ podeEditar }) => {
             </div>
             {tabelaAberta && (
               <button type="button" onClick={() => { setVerTodos(false); setBusca(''); }} className="h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 cursor-pointer" title="Recolher a lista">Recolher</button>
-            )}
-            {podeEditar && (
-              <button
-                onClick={baixarCsv}
-                className="flex items-center gap-1.5 h-10 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                <span>CSV</span>
-              </button>
             )}
           </div>
           {tabelaAberta ? (

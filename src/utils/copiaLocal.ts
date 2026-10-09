@@ -79,18 +79,6 @@ export async function guardarNaCopiaLocal(dono: string, arquivos: Array<{ caminh
   } catch {}
 }
 
-export async function removerDaCopiaLocal(caminhos: string[]): Promise<void> {
-  if (caminhos.length === 0) return;
-  const banco = await abrirBanco();
-  if (!banco) return;
-  try {
-    const transacao = banco.transaction(NOME_DA_TABELA, 'readwrite');
-    const tabela = transacao.objectStore(NOME_DA_TABELA);
-    caminhos.forEach((c) => tabela.delete(c));
-    await concluir(transacao, banco);
-  } catch {}
-}
-
 export async function apagarCopiaLocal(): Promise<void> {
   const banco = await abrirBanco();
   if (!banco) return;

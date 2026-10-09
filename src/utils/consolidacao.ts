@@ -39,16 +39,6 @@ export interface LigacaoEscola {
   metodo: MetodoLigacao;
 }
 
-export const NOMES_METODO: Record<MetodoLigacao, string> = {
-  referencia: 'Ano de referência',
-  manual: 'Corrigida à mão',
-  manual_sem: 'Marcada à mão como sem correspondência',
-  numero: 'Mesmo número e nome parecido',
-  nome: 'Mesmo nome',
-  distancia: 'Até 150 metros',
-  sem: 'Sem correspondência'
-};
-
 export interface VotoSemLocalizacao {
   candidatoId: string;
   ano: string;

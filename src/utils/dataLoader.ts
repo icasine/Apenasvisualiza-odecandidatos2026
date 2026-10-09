@@ -1,7 +1,7 @@
 
 import { getStoredGitHubRepo, getStoredGitHubBranch, getStoredGitHubToken } from './adminAuth';
-import { fetchFileDirectFromGitHubAPI } from './githubSync';
-import { acessoAtivo, lerSessao, buscarArquivoComSessao, OpcoesDeLeitura } from './acesso';
+import { fetchFileDirectFromGitHubAPI, getFileDetailsFromGitHub } from './githubSync';
+import { acessoAtivo, lerSessao, buscarArquivoComSessao, OpcoesDeLeitura, marcarFalhaDeLeitura, limparFalhaDeLeitura } from './acesso';
 
 const DEFAULT_REPO = 'icasine/eleicaocontagemcomparativo';
 
@@ -64,8 +64,18 @@ async function lerJson<T>(url: string): Promise<{ dados: T | null; naoExiste: bo
   }
 }
 
+let leituraDiretaConfirmada = false;
+
 export async function fetchDataFile<T = any>(relativePath: string, opcoes: OpcoesDeLeitura = {}): Promise<T | null> {
   const cleanPath = relativePath.replace(/^\.?\//, '').replace(/^public\//, '');
+  const estado = { falhou: false };
+  const dados = await buscarDados<T>(cleanPath, opcoes, estado);
+  if (dados != null) limparFalhaDeLeitura(cleanPath);
+  else if (estado.falhou) marcarFalhaDeLeitura(cleanPath);
+  return dados;
+}
+
+async function buscarDados<T>(cleanPath: string, opcoes: OpcoesDeLeitura, estado: { falhou: boolean }): Promise<T | null> {
   const repo = getEffectiveRepo();
   const branch = getEffectiveBranch();
   const token = getStoredGitHubToken();
@@ -75,9 +85,19 @@ export async function fetchDataFile<T = any>(relativePath: string, opcoes: Opcoe
     if (!sessao) return null;
     if (token && sessao.perfil === 'edicao' && repo && repo.includes('/')) {
       try {
-        const viaApi = await fetchFileDirectFromGitHubAPI<T>({ repo, token, branch }, `public/${cleanPath}`);
-        if (viaApi) return viaApi;
+        const detalhes = await getFileDetailsFromGitHub({ repo, token, branch }, `public/${cleanPath}`);
+        if (detalhes.exists) {
+          leituraDiretaConfirmada = true;
+          if (detalhes.content) {
+            try {
+              return JSON.parse(detalhes.content) as T;
+            } catch {}
+          }
+        } else if (leituraDiretaConfirmada) {
+          return null;
+        }
       } catch (e) {
+        estado.falhou = true;
         console.warn(`Leitura de ${cleanPath} pela API falhou; tentando pelo serviço de acesso:`, e);
       }
     }
@@ -90,6 +110,7 @@ export async function fetchDataFile<T = any>(relativePath: string, opcoes: Opcoe
         const viaApi = await fetchFileDirectFromGitHubAPI<T>({ repo, token, branch }, `public/${cleanPath}`);
         if (viaApi) return viaApi;
       } catch (e) {
+        estado.falhou = true;
         console.warn(`Leitura de ${cleanPath} pela API falhou; tentando a leitura pública:`, e);
       }
     }

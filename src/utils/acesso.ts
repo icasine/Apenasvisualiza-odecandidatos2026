@@ -1,6 +1,6 @@
 
 import { URL_ACESSO } from '../config';
-import { apagarCopiaLocal, guardarNaCopiaLocal, lerCopiaLocal, removerDaCopiaLocal } from './copiaLocal';
+import { apagarCopiaLocal, guardarNaCopiaLocal, lerCopiaLocal } from './copiaLocal';
 
 export type PerfilAcesso = 'edicao' | 'consulta';
 
@@ -263,6 +263,25 @@ export function limparCopiasDoAcesso(): void {
   void apagarCopiaLocal();
 }
 
+export async function limparCacheDoServico(): Promise<boolean> {
+  const s = lerSessao();
+  if (!s || s.perfil !== 'edicao') return false;
+  const limite = new Promise<boolean>((resolver) => setTimeout(() => resolver(false), 10000));
+  const pedido = chamarScript({ acao: 'limpar_cache', sessao: s.sessao })
+    .then((r) => Boolean(r && r.ok))
+    .catch(() => false);
+  return Promise.race([pedido, limite]);
+}
+
+export async function atualizarDadosDoAcesso(): Promise<void> {
+  memoria.clear();
+  vindosDoAparelho.clear();
+  aGravar = [];
+  haDadosNovos = false;
+  abertura = null;
+  await apagarCopiaLocal();
+}
+
 let loteDisponivel: boolean | null = null;
 
 const VALIDADE_SCRIPT_ANTIGO_MS = 30 * 60 * 1000;
@@ -328,7 +347,6 @@ export function iniciarDadosDoAcesso(itensMarcados: string[]): Promise<void> {
           memoria.set(a.caminho, a.texto);
           vindosDoAparelho.add(a.caminho);
         });
-        setTimeout(() => void conferirCopiaDoAparelho(s, itensMarcados), 1500);
         return;
       }
       const arquivos = await receberPacote(s, itensMarcados, true);
@@ -336,62 +354,6 @@ export function iniciarDadosDoAcesso(itensMarcados: string[]): Promise<void> {
     })().catch((e) => console.warn('Falha ao preparar os dados do acesso:', e));
   }
   return abertura;
-}
-
-async function conferirCopiaDoAparelho(s: SessaoAcesso, itensMarcados: string[]) {
-  const novos = new Map<string, string | null>();
-  const negados: string[] = [];
-  const aplicar = (arquivos: Record<string, any> | null | undefined) => {
-    if (!arquivos) return;
-    Object.keys(arquivos).forEach((caminho) => {
-      const r = arquivos[caminho];
-      if (respostaDeArquivoValida(r)) novos.set(caminho, r.existe === false || r.conteudo == null ? null : JSON.stringify(r.conteudo));
-      else if (r && r.ok === false && (r.codigo === 'sem_permissao' || r.codigo === 'caminho_invalido')) negados.push(caminho);
-    });
-  };
-  try {
-    aplicar(await receberPacote(s, itensMarcados, false));
-    const faltam = Array.from(vindosDoAparelho).filter((c) => !novos.has(c) && !negados.includes(c));
-    if (scriptAceitaLote() !== false) {
-      for (let i = 0; i < faltam.length; i += MAXIMO_POR_LOTE) {
-        const resposta = await chamarScriptComAndamento({ acao: 'arquivos', sessao: s.sessao, caminhos: faltam.slice(i, i + MAXIMO_POR_LOTE) }, false, LIMITE_VARIOS_ARQUIVOS_MS);
-        if (resposta && resposta.codigo === 'sessao_invalida') return sessaoCaiu();
-        if (mapaDeArquivosValido(resposta)) aplicar(resposta.arquivos);
-      }
-    } else {
-      for (const caminho of faltam) {
-        const resposta = await chamarScript({ acao: 'arquivo', sessao: s.sessao, caminho });
-        if (resposta && resposta.codigo === 'sessao_invalida') return sessaoCaiu();
-        aplicar({ [caminho]: resposta });
-      }
-    }
-  } catch (e) {
-    console.warn('Não foi possível conferir se há dados mais novos:', e);
-  }
-
-  let mudou = false;
-  const gravar: Array<{ caminho: string; texto: string | null }> = [];
-  novos.forEach((texto, caminho) => {
-    if (vindosDoAparelho.has(caminho)) {
-      if (memoria.get(caminho) !== texto) {
-        mudou = true;
-        gravar.push({ caminho, texto });
-      }
-    } else if (!memoria.has(caminho)) {
-      memoria.set(caminho, texto);
-      gravar.push({ caminho, texto });
-    }
-  });
-  const perdidos = negados.filter((c) => vindosDoAparelho.has(c));
-  if (perdidos.length > 0) {
-    mudou = true;
-    void removerDaCopiaLocal(perdidos);
-  }
-  if (gravar.length > 0) void guardarNaCopiaLocal(donoAtual, gravar);
-  if (mudou) {
-    haDadosNovos = true;
-    avisarOuvintes();
-  }
 }
 
 interface Pendente {
@@ -419,18 +381,25 @@ function liberarVezDeAvulso() {
   else avulsosEmCurso--;
 }
 
+const falhasDeLeitura = new Set<string>();
+const semPublic = (caminho: string) => caminho.replace(/^\.?\//, '').replace(/^public\//, '');
+export const marcarFalhaDeLeitura = (caminho: string) => { falhasDeLeitura.add(semPublic(caminho)); };
+export const limparFalhaDeLeitura = (caminho: string) => { falhasDeLeitura.delete(semPublic(caminho)); };
 async function buscarUmArquivo<T>(sessao: string, caminho: string, silencioso: boolean): Promise<T | null> {
   await esperarVezDeAvulso();
   try {
     const resposta = await chamarScriptComAndamento({ acao: 'arquivo', sessao, caminho }, !silencioso, LIMITE_UM_ARQUIVO_MS);
     if (respostaDeArquivoValida(resposta)) {
       lembrarResposta(caminho, resposta);
+      limparFalhaDeLeitura(caminho);
       return (resposta.conteudo ?? null) as T | null;
     }
+    marcarFalhaDeLeitura(caminho);
     if (resposta && resposta.codigo === 'sessao_invalida') sessaoCaiu();
     return null;
   } catch (e) {
     console.warn(`Falha ao buscar ${caminho} pelo serviço de acesso:`, e);
+    marcarFalhaDeLeitura(caminho);
     return null;
   } finally {
     liberarVezDeAvulso();
@@ -453,6 +422,8 @@ async function despacharLote(pendentes: Pendente[]) {
       caminhos.forEach((caminho) => lembrarResposta(caminho, resposta.arquivos[caminho]));
       pendentes.forEach((p) => {
         const r = resposta.arquivos[p.caminho];
+        if (respostaDeArquivoValida(r)) limparFalhaDeLeitura(p.caminho);
+        else marcarFalhaDeLeitura(p.caminho);
         p.resolver(respostaDeArquivoValida(r) ? r.conteudo ?? null : null);
       });
       return;
@@ -507,29 +478,9 @@ export async function buscarArquivoComSessao<T>(caminho: string, opcoes: OpcoesD
   });
 }
 
-
 const listaOuTodos = (v: unknown): string[] | 'TODOS' | undefined => (v === 'TODOS' ? 'TODOS' : Array.isArray(v) ? v.map(String) : undefined);
 function permissoesDe(u: any): Pick<SessaoAcesso, 'ver' | 'inserir' | 'aprovacao'> {
   return { ver: listaOuTodos(u?.ver), inserir: listaOuTodos(u?.inserir), aprovacao: Boolean(u?.aprovacao) };
-}
-export function podeVerArea(area: string): boolean {
-  if (!acessoAtivo()) return true;
-  const s = lerSessao();
-  if (!s) return false;
-  if (s.perfil === 'edicao') return true;
-  const ver = s.ver === undefined ? (s.candidatos === 'TODOS' ? 'TODOS' : []) : s.ver;
-  return ver === 'TODOS' || ver.includes(area);
-}
-export function podeInserirArea(area: string): boolean {
-  if (!acessoAtivo()) return true;
-  const s = lerSessao();
-  if (!s) return false;
-  if (s.perfil === 'edicao') return true;
-  return s.inserir === 'TODOS' || (s.inserir || []).includes(area);
-}
-export function insercaoComAprovacao(): boolean {
-  const s = lerSessao();
-  return Boolean(s && s.perfil !== 'edicao' && s.aprovacao);
 }
 export async function atualizarPermissoes(): Promise<boolean> {
   const s = lerSessao();
@@ -551,25 +502,4 @@ export async function atualizarPermissoes(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-export async function gravarPeloAcesso(caminho: string, item: Record<string, unknown>, remover = false): Promise<{ pendente: boolean }> {
-  const s = lerSessao();
-  if (!s) throw new Error('Entre no mapa de novo para gravar.');
-  const r = await chamarScript({ acao: 'gravar', sessao: s.sessao, caminho: caminho.replace(/^public\//, ''), item, remover });
-  if (!r || !r.ok) throw new Error(r?.erro || 'Não foi possível gravar.');
-  return { pendente: Boolean(r.pendente) };
-}
-export interface Pendencia { id: string; data: string; usuario: string; arquivo: string; acao: string; resumo: string; item: any }
-export async function listarPendencias(): Promise<Pendencia[]> {
-  const s = lerSessao();
-  if (!s) return [];
-  const r = await chamarScript({ acao: 'pendencias', sessao: s.sessao });
-  if (!r || !r.ok) throw new Error(r?.erro || 'Não foi possível ler as aprovações.');
-  return Array.isArray(r.pendencias) ? r.pendencias : [];
-}
-export async function decidirPendencia(id: string, aprovar: boolean): Promise<void> {
-  const s = lerSessao();
-  if (!s) throw new Error('Entre no mapa de novo.');
-  const r = await chamarScript({ acao: 'decidir', sessao: s.sessao, id, aprovar });
-  if (!r || !r.ok) throw new Error(r?.erro || 'Não foi possível concluir.');
 }
