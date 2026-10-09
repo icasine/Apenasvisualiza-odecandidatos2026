@@ -65,6 +65,8 @@ Um ano sem cadastro próprio de locais é mostrado nas escolas do cadastro mais 
 2. Mesma pessoa: itens com o mesmo nome em eleições diferentes são ligados sozinhos, mesmo que o número e o cargo mudem. O título da coluna pode ser só o nome ("Carol do Teteco") ou trazer número e partido entre parênteses ("Carol do Teteco (15678 MDB)"): o parêntese não entra no nome. Se a pessoa mudou de nome de urna, abra Dados salvos, Editar dados, e escolha no campo Pessoa o nome que ela já tem em outra eleição.
 3. Opcional: envie os locais daquele ano (aba 2) para ver o prédio da época. Nesse caso, confira a aba Escolas entre anos. O app liga as escolas sozinho (mesmo número e nome parecido; mesmo nome; até 150 metros) e você corrige o que ficou errado.
 
+Ao entrar no app, a eleição mais recente e a de 2024 já vêm ligadas na lista (para mudar os anos, edite `ANOS_LIGADOS_AO_ENTRAR` em `src/App.tsx`). No topo da lista ficam a busca e os botões de cada eleição (anos, vereador e deputados, prefeito), que ligam e desligam o que aparece. Logo abaixo, "No mapa agora" mostra os marcados, cada um com um X para tirar. No celular, a lista abre sozinha quando nada está marcado.
+
 Na lista de candidatos, a busca acha por nome, número, partido, cargo ou ano (várias palavras juntas, como "mdb 2024"). Com a busca ativa, "Marcar os N" marca só os encontrados. "Só os marcados" mostra o que está no mapa. Quando uma eleição tem mais de oito itens, a lista vem separada por partido: cada partido abre e fecha, mostra o total de votos e tem uma caixa que marca ou desmarca todos dele de uma vez.
 
 ## 4. Conferir e consertar

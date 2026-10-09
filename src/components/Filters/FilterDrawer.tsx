@@ -148,6 +148,17 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
   const filtrando = termos.length > 0 || soMarcados;
 
   const [gruposAbertos, setGruposAbertos] = useState<Record<string, boolean>>({});
+  const [partidosAbertos, setPartidosAbertos] = useState<Record<string, boolean>>({});
+  const abrirTodosOsPartidos = (grupo: string, abrir: boolean) => {
+    setPartidosAbertos((prev) => ({ ...prev, [grupo]: abrir }));
+    setGruposAbertos((prev) => {
+      const copia = { ...prev };
+      Object.keys(copia).forEach((k) => {
+        if (k.startsWith(`${grupo}|`)) delete copia[k];
+      });
+      return copia;
+    });
+  };
   const gruposPorPartido = (grupo: string, cands: CandidatoInfo[], todosDoGrupo: CandidatoInfo[]) => {
     const rotuloDoPartido = (c: CandidatoInfo) =>
       c.tipo === 'outros' ? 'Brancos, nulos e outros' : (c.partido || '').trim().toUpperCase() || 'Sem partido';
@@ -169,7 +180,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
         const ordem = (c: CandidatoInfo) => (c.tipo === 'total_partido' ? 0 : c.tipo === 'legenda' ? 1 : 2);
         const ordenados = [...itens].sort((x, y) => ordem(x) - ordem(y) || (y.totalVotos || 0) - (x.totalVotos || 0));
         const votos = itens.filter((c) => !c.tipo || c.tipo === 'candidato' || c.tipo === 'legenda').reduce((acc, c) => acc + (c.totalVotos || 0), 0);
-        const aberto = gruposAbertos[chave] ?? (filtrando || marcados > 0);
+        const aberto = gruposAbertos[chave] ?? (filtrando || marcados > 0 || Boolean(partidosAbertos[grupo]));
         return { chave, partido, itens: ordenados, votos, marcados, aberto, comCabecalho: true };
       })
       .sort((x, y) => y.votos - x.votos || x.partido.localeCompare(y.partido, 'pt-BR'));
@@ -217,94 +228,148 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
   const content = (
     <div className="flex flex-col h-full bg-white border-r border-slate-200 text-slate-800 overflow-y-auto w-full select-none">
       
-      <div className="p-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-xs z-10">
-        <div className="flex items-center gap-2">
-          <Users className="w-4 h-4 text-blue-600" />
-          <h2 className="text-sm font-bold text-slate-900 tracking-wide">Candidatos & Filtros</h2>
+      <div className="sticky top-0 bg-white z-10 border-b border-slate-200 shadow-xs">
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-blue-600" />
+            <h2 className="text-sm font-bold text-slate-900 tracking-wide">Candidatos</h2>
+            <span className="text-[11px] text-slate-500">({candidatosVisiveis.length} na lista)</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onResetFilters}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded transition cursor-pointer"
+              title="Redefinir filtros"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Limpar</span>
+            </button>
+            <button
+              onClick={onCloseMobile}
+              className="lg:hidden flex items-center justify-center w-10 h-10 rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 cursor-pointer"
+              aria-label="Fechar gaveta"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onResetFilters}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded transition cursor-pointer"
-            title="Redefinir filtros"
-          >
-            <RotateCcw className="w-3 h-3" />
-            <span>Limpar</span>
-          </button>
-          <button
-            onClick={onCloseMobile}
-            className="lg:hidden flex items-center justify-center w-10 h-10 rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 cursor-pointer"
-            aria-label="Fechar gaveta"
-          >
-            <X className="w-6 h-6" />
-          </button>
+        <div className="px-4 pb-3 space-y-2">
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              inputMode="search"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por nome, número, partido ou ano"
+              aria-label="Buscar candidato"
+              className="w-full h-10 pl-8 pr-9 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 select-text"
+            />
+            {busca && (
+              <button
+                type="button"
+                onClick={() => setBusca('')}
+                aria-label="Limpar a busca"
+                className="absolute right-0 top-0 w-10 h-10 flex items-center justify-center text-slate-500 hover:text-slate-900 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Eleições na lista">
+            {[
+              ...anosDaLista.map((a) => ({ chave: `ano:${a}`, rotulo: a })),
+              { chave: 'proporcionais', rotulo: 'Vereador e deputados' },
+              { chave: 'majoritarias', rotulo: 'Prefeito' }
+            ].map(({ chave, rotulo }) => {
+              const ligada = !desligadas.includes(chave);
+              return (
+                <button
+                  key={chave}
+                  type="button"
+                  role="switch"
+                  aria-checked={ligada}
+                  onClick={() => alternarEleicao(chave)}
+                  title={ligada ? `Tirar ${rotulo} da lista` : `Mostrar ${rotulo} na lista`}
+                  className={`h-8 px-2.5 rounded-full text-[11px] font-semibold border transition cursor-pointer flex items-center gap-1 ${
+                    ligada ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  {ligada ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                  {chave.startsWith('ano:') ? `Eleição ${rotulo}` : rotulo}
+                </button>
+              );
+            })}
+          </div>
+
+          {candidatosDisponiveis.length > 0 && (
+            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={soMarcados} onChange={(e) => setSoMarcados(e.target.checked)} className="rounded cursor-pointer" />
+                <span>Só os marcados ({filters.candidatosSelecionados.length})</span>
+              </label>
+              {candidatosVisiveis.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={filtrando ? marcarEncontrados : selectAll}
+                    className="text-blue-600 hover:text-blue-700 transition cursor-pointer"
+                  >
+                    {filtrando ? `Marcar os ${candidatosVisiveis.length}` : 'Marcar todos'}
+                  </button>
+                  <span className="text-slate-400">·</span>
+                  <button
+                    onClick={filtrando ? desmarcarEncontrados : deselectAll}
+                    className="text-slate-500 hover:text-slate-900 transition cursor-pointer"
+                  >
+                    Desmarcar
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       <div className="p-4 space-y-5 text-xs">
         
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              Candidatos Salvos ({candidatosDisponiveis.length})
-            </span>
-            {candidatosDisponiveis.length > 0 && candidatosVisiveis.length > 0 && (
-              <div className="flex items-center gap-2 text-[11px]">
-                <button
-                  onClick={filtrando ? marcarEncontrados : selectAll}
-                  className="text-blue-600 hover:text-blue-700 transition cursor-pointer"
-                >
-                  {filtrando ? `Marcar os ${candidatosVisiveis.length}` : 'Marcar todos'}
-                </button>
-                <span className="text-slate-400">·</span>
-                <button
-                  onClick={filtrando ? desmarcarEncontrados : deselectAll}
-                  className="text-slate-500 hover:text-slate-900 transition cursor-pointer"
-                >
-                  Desmarcar
-                </button>
-              </div>
-            )}
-          </div>
-
-          {candidatosDisponiveis.length > 5 && (
+          {marcados.length > 0 ? (
             <div className="space-y-1.5">
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  inputMode="search"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  placeholder="Buscar por nome, número, partido ou ano"
-                  aria-label="Buscar candidato"
-                  className="w-full h-10 pl-8 pr-9 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 select-text"
-                />
-                {busca && (
-                  <button
-                    type="button"
-                    onClick={() => setBusca('')}
-                    aria-label="Limpar a busca"
-                    className="absolute right-0 top-0 w-10 h-10 flex items-center justify-center text-slate-500 hover:text-slate-900 cursor-pointer"
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">No mapa agora</span>
+              <div className="flex flex-wrap gap-1.5">
+                {marcados.map((c) => (
+                  <span
+                    key={c.id}
+                    className={`inline-flex items-center gap-1 max-w-full h-8 pl-2 rounded-full border text-[11px] font-semibold ${
+                      itemLigado(c, desligadas) ? 'bg-blue-50 border-blue-200 text-slate-900' : 'bg-slate-50 border-slate-200 text-slate-400 line-through'
+                    }`}
+                    title={itemLigado(c, desligadas) ? rotuloItem(c) : `${rotuloItem(c)} (eleição desligada)`}
                   >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-              {filters.candidatosSelecionados.length === 0 && <div role="status" className="text-[12px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5">Escolha um candidato na lista</div>}
-              <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={soMarcados} onChange={(e) => setSoMarcados(e.target.checked)} className="rounded cursor-pointer" />
-                  <span>Só os marcados ({filters.candidatosSelecionados.length})</span>
-                </label>
-                {filtrando && (
-                  <span role="status" className="font-mono">
-                    {candidatosVisiveis.length} de {candidatosDisponiveis.length}
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c.cor }} />
+                    <span className="truncate">
+                      {c.nome} {c.ano}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleCandidato(c.id)}
+                      aria-label={`Tirar ${c.nome} (${c.ano}) do mapa`}
+                      className="w-8 h-8 shrink-0 flex items-center justify-center rounded-full text-slate-500 hover:text-slate-900 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </span>
-                )}
+                ))}
               </div>
             </div>
+          ) : (
+            candidatosDisponiveis.length > 0 && (
+              <div role="status" className="text-[12px] font-semibold text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5">
+                Marque um ou mais candidatos abaixo para ver os votos no mapa.
+              </div>
+            )
           )}
 
           {candidatosDisponiveis.length === 0 ? (
@@ -326,7 +391,9 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
                   const totalDoGrupo = todosDoGrupo.length;
                   const marcadosDoGrupo = todosDoGrupo.filter((c) => filters.candidatosSelecionados.includes(c.id)).length;
                   const chaveEleicao = `eleicao|${e.chave}`;
-                  const eleicaoAberta = gruposAbertos[chaveEleicao] ?? (filtrando || marcadosDoGrupo > 0 || eleicoes.length === 1);
+                  const eleicaoAberta = gruposAbertos[chaveEleicao] ?? true;
+                  const gruposDaEleicao = eleicaoAberta ? gruposPorPartido(e.chave, candsDoGrupo, todosDoGrupo) : [];
+                  const todosPartidosAbertos = gruposDaEleicao.every((g) => g.aberto);
                   return (
                     <div key={e.chave} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
                       <button
@@ -353,7 +420,18 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
                       </button>
 
                       <div className={eleicaoAberta ? 'space-y-1.5' : 'hidden'}>
-                        {(eleicaoAberta ? gruposPorPartido(e.chave, candsDoGrupo, todosDoGrupo) : []).map((g) => (
+                        {eleicaoAberta && !filtrando && gruposDaEleicao.length > 1 && (
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => abrirTodosOsPartidos(e.chave, !todosPartidosAbertos)}
+                              className="h-8 px-2 text-[11px] font-semibold text-blue-700 underline cursor-pointer"
+                            >
+                              {todosPartidosAbertos ? 'Fechar todos os partidos' : 'Abrir todos os partidos'}
+                            </button>
+                          </div>
+                        )}
+                        {gruposDaEleicao.map((g) => (
                         <div key={g.chave} className="space-y-1.5">
                           {g.comCabecalho && (
                             <div className="flex items-center gap-2 h-10 pl-2 pr-1 bg-white border border-slate-300 rounded-lg">
@@ -739,32 +817,6 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             </div>
           )}
         </div>
-        <div className="space-y-1.5">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Eleições</span>
-          {[
-            { chave: 'proporcionais', rotulo: 'Proporcionais (vereador e deputados)' },
-            { chave: 'majoritarias', rotulo: 'Majoritárias (prefeito)' },
-            ...anosDaLista.map((a) => ({ chave: `ano:${a}`, rotulo: `Eleição ${a}` }))
-          ].map(({ chave, rotulo }) => {
-            const ligada = !desligadas.includes(chave);
-            return (
-              <button
-                key={chave}
-                type="button"
-                role="switch"
-                aria-checked={ligada}
-                onClick={() => alternarEleicao(chave)}
-                className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-slate-50 ${chave.startsWith('ano:') ? 'pl-4' : ''}`}
-              >
-                <span className={ligada ? 'text-slate-800 font-medium' : 'text-slate-400'}>{rotulo}</span>
-                <span className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition ${ligada ? 'bg-blue-600' : 'bg-slate-300'}`}>
-                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${ligada ? 'left-4' : 'left-0.5'}`} />
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
       </div>
     </div>
   );
@@ -792,6 +844,17 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
           <div className="relative bg-white border-t border-slate-200 rounded-t-2xl max-h-[85vh] h-[85vh] flex flex-col z-10 shadow-2xl overflow-hidden">
             <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto my-2.5 shrink-0" />
             <div className="flex-1 overflow-y-auto">{content}</div>
+            <div className="shrink-0 p-3 border-t border-slate-200 bg-white">
+              <button
+                type="button"
+                onClick={onCloseMobile}
+                className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold cursor-pointer"
+              >
+                {filters.candidatosSelecionados.length > 0
+                  ? `Ver ${filters.candidatosSelecionados.length} ${filters.candidatosSelecionados.length === 1 ? 'marcado' : 'marcados'} no mapa`
+                  : 'Voltar ao mapa'}
+              </button>
+            </div>
           </div>
         </div>
       )}

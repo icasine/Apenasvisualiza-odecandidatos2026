@@ -44,9 +44,10 @@ export const Navbar: React.FC<NavbarProps> = ({
     return (
       <nav className="flex items-center gap-0.5" aria-label="Navegação">
         {mostraBotaoCandidatos && (
-          <button onClick={onToggleFiltersMobile} className="lg:hidden relative w-9 h-9 flex items-center justify-center rounded-lg text-blue-700 bg-blue-50 border border-blue-200 cursor-pointer" title="Candidatos" aria-label="Candidatos">
+          <button onClick={onToggleFiltersMobile} className="lg:hidden h-9 px-2.5 mr-1 flex items-center gap-1.5 rounded-lg text-white bg-blue-600 hover:bg-blue-500 text-xs font-bold cursor-pointer" title="Escolher candidatos" aria-label="Escolher candidatos">
             <Filter className="w-4 h-4" />
-            {candidatosCount > 0 && <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-blue-600 text-white text-[10px] leading-4 text-center">{candidatosCount}</span>}
+            <span>Candidatos</span>
+            {candidatosCount > 0 && <span className="min-w-4 h-4 px-1 rounded-full bg-white text-blue-700 text-[10px] leading-4 text-center">{candidatosCount}</span>}
           </button>
         )}
         <button onClick={() => onTabChange('mapa')} className={icone(currentTab === 'mapa')} title="Mapa" aria-label="Mapa"><Map className="w-4 h-4" /></button>
