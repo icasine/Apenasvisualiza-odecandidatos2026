@@ -56,6 +56,9 @@ const DEFAULT_FILTERS: FilterState = {
   eleicoesDesligadas: ['majoritarias']
 };
 
+// Anos que já entram ligados ao abrir o app, além do mais recente.
+const ANOS_LIGADOS_AO_ENTRAR = ['2024'];
+
 const INDICE_VAZIO: IndiceData = {
   municipio: 'Contagem',
   uf: 'MG',
@@ -210,10 +213,12 @@ export default function App() {
         setIndice(loadedIndice);
         const anosDoIndice = Array.from(new Set(loadedIndice.candidatos.map((c) => String(c.ano)))).sort();
         const anoMaisRecente = anosDoIndice[anosDoIndice.length - 1];
+        const anosLigados = new Set([anoMaisRecente, ...ANOS_LIGADOS_AO_ENTRAR]);
         setFilters((prev) => ({
           ...prev,
-          eleicoesDesligadas: Array.from(new Set([...(prev.eleicoesDesligadas || []), ...anosDoIndice.filter((a) => a !== anoMaisRecente).map((a) => `ano:${a}`)]))
+          eleicoesDesligadas: Array.from(new Set([...(prev.eleicoesDesligadas || []), ...anosDoIndice.filter((a) => !anosLigados.has(a)).map((a) => `ano:${a}`)]))
         }));
+        if (window.innerWidth < 1024 && loadedIndice.candidatos.length > 0) setIsFilterDrawerOpenMobile(true);
         setCorrespondencia(validarCorrespondencia(correspondenciaBruta));
 
         setLoading(false);
